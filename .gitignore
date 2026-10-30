@@ -1,2 +1,6 @@
 __pycache__/
 *.pyc
+node_modules/
+dev/qa-output/
+.venv-sync/
+.alignment-cache/

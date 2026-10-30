@@ -16,6 +16,7 @@ const ICON = {
 };
 
 const S = { project: null, plan: null, audio: null, renderer: new J.Renderer(), playing: false, t: 0, t0: 0, loop: 'all', loopHold: null, need: true, exporting: null, tap: null, slow: false, lineEls: [], curLine: -2 };
+let aiUI = null, syncUIController = null, auditionEnd = null, audioLoading = false;
 const LOOP_CYCLE = ['all', 'line', 'cut', false];
 const LOOP_COPY = {
   all:  { ja: 'ループ', en: 'Loop', titleJa: '全体を繰り返し', titleEn: 'Loop the whole piece' },
@@ -136,7 +137,9 @@ function migrateOrder(o, p) {
   if (!p || was === 2) return;
   const map = J.parseOrderV1(o.lyrics || ''); if (!map) return;
   const mv = obj => { const r = {}; for (const [k, v] of Object.entries(obj || {})) { const i = +k; r[Number.isInteger(i) && map[i] != null ? map[i] : k] = v; } return r; };
-  o.timing.lineTimes = mv(o.timing.lineTimes); o.overrides = mv(o.overrides);
+  o.timing.lineTimes = mv(o.timing.lineTimes);
+  if (o.timing.lineEnds) o.timing.lineEnds = mv(o.timing.lineEnds);
+  o.overrides = mv(o.overrides);
   const R = o.exportRange;
   if (R && Number.isInteger(R.from) && Number.isInteger(R.to)) {
     const idx = []; for (let i = R.from; i <= R.to && i < map.length; i++) idx.push(map[i]);
@@ -184,6 +187,8 @@ function replan() {
   if (typeof cutPick !== 'undefined' && cutPick.g) fillCutPick();
   S.need = true; autosave(); ensureFonts(); drawSwatch(); showNow();
   clearTimeout(warmTimer); warmTimer = setTimeout(warm, 450);
+  if (aiUI) aiUI.refresh();
+  if (syncUIController) syncUIController.refresh();
 }
 /* pre-decompose glyphs used by piece animations while the editor is idle, so playback does not hitch */
 let warmTimer = 0, warmJob = 0;
@@ -272,7 +277,8 @@ function tick(now) {
     // rAF timestamps can precede the moment play()/seek() stamped t0 → clamp so t never goes negative
     let t = Math.max(0, S.audio ? AP.time() : (now - S.t0) / 1000 * playRate());
     const range = activeLoopRange();
-    if (t >= range.end - 1e-3) {
+    if (auditionEnd != null && t >= auditionEnd) { const end = auditionEnd; pause(); t = end; }
+    else if (t >= range.end - 1e-3) {
       if (S.loop && !S.tap) { seek(range.start); t = range.start; }
       else { pause(); t = Math.min(t, S.plan.duration - 1e-3); if (S.tap) stopTap(); }
     }
@@ -289,16 +295,19 @@ function updateTimeUI() {
 // タップ同期の速さ (0.5× / 0.75×): only while tapping — the song's own time is what gets stored
 const playRate = () => (S.tap && S.tap.rate > 0 ? S.tap.rate : 1);
 function play() {
+  auditionEnd = null;
   refreshLoopHold();
   if (S.audio) AP.play(S.audio.buffer, S.t, playRate());
   else S.t0 = performance.now() - S.t * 1000 / playRate();
   S.playing = true; $('btnPlay').textContent = '❚❚'; $('btnPlay').setAttribute('aria-label', '一時停止');
 }
 function pause() {
+  auditionEnd = null;
   S.playing = false; AP.stop();
   $('btnPlay').textContent = '▶'; $('btnPlay').setAttribute('aria-label', '再生'); S.need = true;
 }
 function seek(t) {
+  auditionEnd = null;
   S.t = J.clamp(t, 0, Math.max(0, S.plan.duration - 1e-3));
   if (S.audio) { if (S.playing) AP.play(S.audio.buffer, S.t, playRate()); }
   else S.t0 = performance.now() - S.t * 1000 / playRate();
@@ -774,7 +783,7 @@ function editLine(li, ln) {
 /* ---------------- 歌詞・タイミングの取り消し（Ctrl+Z） ---------------- */
 // separate from the ◀ ▶ history of looks: lyric edits, dragged / typed / tapped line times
 const ED = { undo: [], redo: [] };
-const edSnap = () => JSON.stringify({ lyrics: S.project.lyrics, lineTimes: S.project.timing.lineTimes || {} });
+const edSnap = () => JSON.stringify({ lyrics: S.project.lyrics, lineTimes: S.project.timing.lineTimes || {}, lineEnds: S.project.timing.lineEnds || {} });
 function pushEdit() { const s = edSnap(); if (ED.undo[ED.undo.length - 1] !== s) ED.undo.push(s); if (ED.undo.length > 60) ED.undo.shift(); ED.redo = []; updateEditBtns(); }
 function edGo(d) {
   const from = d < 0 ? ED.undo : ED.redo, to = d < 0 ? ED.redo : ED.undo;
@@ -782,7 +791,7 @@ function edGo(d) {
   const o = JSON.parse(from.pop()), cur = JSON.parse(edSnap());
   if ('ov' in o) { cur.ov = S.project.overrides; cur.range = S.project.exportRange || null; }   // clearLyrics() also cleared these
   to.push(JSON.stringify(cur));
-  S.project.lyrics = o.lyrics; S.project.timing.lineTimes = o.lineTimes; $('lyrics').value = o.lyrics;
+  S.project.lyrics = o.lyrics; S.project.timing.lineTimes = o.lineTimes; S.project.timing.lineEnds = o.lineEnds || {}; $('lyrics').value = o.lyrics;
   if ('ov' in o) { S.project.overrides = o.ov || {}; S.project.exportRange = o.range || null; }
   replan(); flushSave(); updateEditBtns();
   toast(d < 0 ? '元に戻しました' : 'やり直しました');
@@ -794,11 +803,19 @@ function loadLrc(text) {
   const snap = JSON.parse(edSnap()); snap.ov = P.overrides || {}; snap.range = P.exportRange || null;
   ED.undo.push(JSON.stringify(snap)); if (ED.undo.length > 60) ED.undo.shift(); ED.redo = [];
   pause();
-  P.lyrics = String(text).replace(/^\ufeff/, '').replace(/\r\n?/g, '\n').trim(); P.timing.lineTimes = {}; P.overrides = {}; P.exportRange = null;
+  P.lyrics = String(text).replace(/^\ufeff/, '').replace(/\r\n?/g, '\n').trim(); P.timing.lineTimes = {}; P.timing.lineEnds = {}; P.overrides = {}; P.exportRange = null;
   $('lyrics').value = P.lyrics;
   replan(); flushSave(); updateEditBtns(); seek(0);
   const n = J.parseLyrics(P.lyrics).lines.filter(l => l.lrc != null).length;
   toast(`LRC を読み込みました（時刻付き ${n} 行・「元に戻す」で戻せます）`);
+}
+function applyAudioTranscript(next) {
+  if (S.tap || S.exporting) return;
+  const snap = JSON.parse(edSnap()); snap.ov = S.project.overrides || {}; snap.range = S.project.exportRange || null;
+  ED.undo.push(JSON.stringify(snap)); if (ED.undo.length > 60) ED.undo.shift(); ED.redo = [];
+  pause(); S.project = next; $('lyrics').value = next.lyrics;
+  replan(); flushSave(); updateEditBtns(); seek(0);
+  $('lineList')?.closest?.('.sec')?.classList.remove('fold');
 }
 function saveLrc() {
   const R = exportRangeLines(), r = exportRange();
@@ -813,7 +830,7 @@ function clearLyrics() {
   const snap = JSON.parse(edSnap()); snap.ov = P.overrides || {}; snap.range = P.exportRange || null;
   ED.undo.push(JSON.stringify(snap)); if (ED.undo.length > 60) ED.undo.shift(); ED.redo = [];
   pause();
-  P.lyrics = ''; P.timing.lineTimes = {}; P.overrides = {}; P.exportRange = null; $('lyrics').value = '';
+  P.lyrics = ''; P.timing.lineTimes = {}; P.timing.lineEnds = {}; P.overrides = {}; P.exportRange = null; $('lyrics').value = '';
   replan(); flushSave(); updateEditBtns(); seek(0);
   toast('歌詞を消しました（「元に戻す」か Ctrl+Z で戻せます）');
 }
@@ -823,6 +840,8 @@ async function resetAll() {
   if (S.exporting) return;
   if (S.tap) stopTap();
   pause();
+  if (syncUIController) syncUIController.invalidate();
+  audioLoading = false;
   audioSeq++;                                  // a song still being analysed must not come back after the reset
   S.project = mergeProject(null); S.project.lyrics = '';
   S.audio = null; if ($('audioFile')) $('audioFile').value = '';
@@ -1406,6 +1425,7 @@ function baseName() {
 const canPickFile = () => typeof window.showSaveFilePicker === 'function' && !document.documentElement.classList.contains('cep') && typeof VideoEncoder !== 'undefined';
 async function runExport(kind) {
   if (S.exporting) return;
+  if (syncUIController) syncUIController.invalidate();
   // 大きな動画用: the save dialog must open straight from the click (before anything is awaited)
   let file = null, fileName = '';
   if (kind === 'mp4file') {
@@ -1483,6 +1503,7 @@ function offerShare(boxes, blob, name) {
 // start from any line: playback begins a little before that line, earlier lines keep their times
 function startTap(from = 0) {
   if (!S.plan.lines.length) return;
+  if (syncUIController) syncUIController.invalidate();
   from = J.clamp(from | 0, 0, S.plan.lines.length - 1);
   pushEdit();
   const opt = tapOpts();
@@ -1605,7 +1626,7 @@ function bind() {
   $('offset').addEventListener('change', e => { S.project.timing.offset = Math.max(0, parseFloat(e.target.value) || 0); replan(); });
   $('lineScale').addEventListener('change', e => { S.project.timing.lineScale = J.clamp(parseFloat(e.target.value) || 1, 0.3, 4); replan(); });
   $('snap').addEventListener('change', e => { S.project.timing.snap = e.target.checked; replan(); });
-  $('btnResetTimes').addEventListener('click', () => { S.project.timing.lineTimes = {}; replan(); });
+  $('btnResetTimes').addEventListener('click', () => { if (S.exporting || S.tap) return; pushEdit(); S.project.timing.lineTimes = {}; S.project.timing.lineEnds = {}; replan(); });
   $('audioFile').addEventListener('change', e => { const f = e.target.files && e.target.files[0]; if (f) loadAudioFile(f); });
   $('btnTap').addEventListener('click', () => (S.tap ? stopTap() : startTap()));
   $('tapBtn').addEventListener('click', tapNow);
@@ -1796,10 +1817,12 @@ function bind() {
   $('resetDlg').addEventListener('close', () => { if ($('resetDlg').returnValue === 'reset') resetAll(); });
   $('fileProject').addEventListener('change', async e => {
     const f = e.target.files && e.target.files[0]; if (!f) return;
+    if (syncUIController) syncUIController.invalidate();
     try {
       const np = mergeProject(JSON.parse(await f.text()));
       if (S.tap) stopTap();
       pause();
+      audioSeq++; audioLoading = false;
       S.project = np;
       // another project: undo and 前の案 / 次の案 belonged to the old one
       ED.undo = []; ED.redo = []; H.list = []; H.i = -1;
@@ -1832,11 +1855,14 @@ function bind() {
 let audioSeq = 0;
 async function loadAudioFile(f, restored) {
   const my = ++audioSeq;                      // only the latest choice may win (an earlier, slower analysis is dropped)
+  if (syncUIController) syncUIController.invalidate();
+  audioLoading = true;
   $('audioName').textContent = '解析中…';
   try {
     pause();
     const a = await J.analyzeAudio(f);
     if (my !== audioSeq) return false;
+    audioLoading = false;
     S.audio = a;
     $('audioName').textContent = `${f.name}（${J.fmtTime(S.audio.duration)}・約${S.audio.bpm}BPM）` + (restored ? '・前回の曲' : '');
     S.project.audioName = f.name;
@@ -1844,7 +1870,7 @@ async function loadAudioFile(f, restored) {
     S.project.timing.snap = true;
     syncUI(); replan();
     return true;
-  } catch (err) { if (my !== audioSeq) return false; $('audioName').textContent = '読み込めませんでした: ' + err.message; S.audio = null; return false; }
+  } catch (err) { if (my !== audioSeq) return false; audioLoading = false; $('audioName').textContent = '読み込めませんでした: ' + err.message; S.audio = null; if (syncUIController) syncUIController.refresh(); return false; }
 }
 
 /* ---------------- かんたんモードの案内ツアー ---------------- */
@@ -1927,6 +1953,40 @@ function boot() {
   let mode = window.matchMedia && window.matchMedia('(max-width: 760px)').matches ? 'mobile' : 'easy';
   try { mode = localStorage.getItem('jizura.mode') || mode; } catch (e) {}
   setMode(mode); commit();
+  if (J.initAIUI) aiUI = J.initAIUI({
+    getProject: () => S.project,
+    getPlan: () => S.plan,
+    getAudio: () => S.audio,
+    isBusy: () => !!(S.exporting || S.tap),
+    applyAI: (response, request, fingerprint) => {
+      if (S.exporting || S.tap) throw new Error('busy');
+      const next = J.ai.applyPlan(S.project, response, request, fingerprint);
+      remember(); S.project = next; fontKey = '';
+      syncUI(); replan(); commit();
+    },
+    previous: () => { if (!S.exporting && !S.tap) histGo(-1); },
+  });
+  if (J.initSyncUI) syncUIController = J.initSyncUI({
+    getProject: () => S.project,
+    getPlan: () => S.plan,
+    getAudio: () => audioLoading ? null : S.audio,
+    isBusy: () => !!(S.exporting || S.tap || audioLoading),
+    applyTranscript: next => {
+      if (S.exporting || S.tap || audioLoading) throw new Error('busy');
+      applyAudioTranscript(next);
+    },
+    applySync: next => {
+      if (S.exporting || S.tap || audioLoading) throw new Error('busy');
+      pushEdit(); S.project = next; replan(); flushSave(); updateEditBtns();
+      $('lineList')?.closest('.sec')?.classList.remove('fold');
+    },
+    undoSync: () => { if (!S.exporting && !S.tap && !audioLoading) edGo(-1); },
+    audition: (start, end) => {
+      if (S.exporting || S.tap || audioLoading || !S.audio) return;
+      pause(); seek(start); play(); auditionEnd = Math.min(end, S.audio.duration);
+      if (AP.src && AP.ctx) AP.src.stop(AP.ctx.currentTime + Math.max(0, auditionEnd - start));
+    },
+  });
   bindTour();
   let seen = false; try { seen = localStorage.getItem('jizura.tourDone') === '1'; } catch (e) {}
   if (!seen && S.mode === 'easy' && !window.__adobe_cep__) setTimeout(tourStart, 600);   // first visit: show the tour once

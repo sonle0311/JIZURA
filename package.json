@@ -1,0 +1,17 @@
+{
+  "name": "jizura",
+  "private": true,
+  "scripts": {
+    "start": "bun server/server.ts",
+    "test": "bun test --timeout 30000 server dev/ai.test.js dev/ai-ui.test.js dev/sync.test.js dev/sync-ui.test.js dev/sync-history.test.js",
+    "setup:sync": "python alignment/setup.py",
+    "test:alignment": "python -m unittest discover -s alignment"
+  },
+  "engines": {
+    "bun": ">=1.4.4"
+  },
+  "dependencies": {
+    "@oh-my-pi/pi-ai": "18.13.3",
+    "@oh-my-pi/pi-coding-agent": "18.13.3"
+  }
+}

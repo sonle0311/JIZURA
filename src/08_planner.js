@@ -53,6 +53,12 @@ J.parseLyrics = (raw) => {
   for (let ri = 0; ri < rows.length; ri++) {
     const s0 = rows[ri].trim();
     if (!s0) { if (lines.length) pendingGap = true; continue; }
+    // A leading backslash quotes a literal lyric row (used for ASR punctuation).
+    if (s0.startsWith('\\')) {
+      const text = s0.slice(1);
+      if (text) { lines.push({text,note:null,impact:false,emph:[],manual:null,gapBefore:pendingGap,src:ri,lrc:null}); pendingGap=false; }
+      continue;
+    }
     if (s0.startsWith('#')) continue;
     const mm = s0.match(/^\[(ti|ar|al|by|offset):(.*)\]$/i);
     if (mm) { meta[mm[1].toLowerCase()] = mm[2].trim(); continue; }
@@ -244,7 +250,12 @@ J.computeTiming = (project, parsed, audio) => {
     }
     i = j;
   }
+  const explicitEnds = starts.map((s, i) => {
+    const e = T.lineEnds && T.lineEnds[i];
+    return typeof e === "number" && Number.isFinite(e) && e > s && (!audio?.duration || e <= audio.duration) ? Math.min(e, starts[i + 1] ?? Infinity) : null;
+  });
   const ends = starts.map((s, i) => {
+    if (explicitEnds[i] != null && explicitEnds[i] > s) return explicitEnds[i];
     if (i < starts.length - 1) return Math.max(s + 0.35, starts[i + 1]);
     const n = [...lines[i].text].length, L = lines[i];
     let d = L.interlude ? (L.secs > 0 ? L.secs : 4) : J.clamp(0.8 + n * 0.17, 1.5, 5.2) * (T.lineScale || 1);
@@ -253,7 +264,7 @@ J.computeTiming = (project, parsed, audio) => {
   });
   let duration = (ends.length ? ends[ends.length - 1] : 3) + (T.tail ?? 0.9);
   if (audio && audio.duration && T.useAudioLength !== false) duration = Math.max(audio.duration, ends.length ? ends[ends.length - 1] + 0.2 : 1);
-  return { starts, ends, duration };
+  return { starts, ends, duration, explicitEnds };
 };
 
 /* ---------------- planning ---------------- */
@@ -275,8 +286,9 @@ J.plan = (project, audio) => {
   // 文字整列: the lyrics appear 0.2 s before the voice (reading ahead feels in time)
   if (project.typeset) {
     const LEAD = 0.2;
-    tm.starts = tm.starts.map(t => Math.max(0, t - LEAD));
-    tm.ends = tm.ends.map((t, i) => Math.max(tm.starts[i] + 0.3, t - LEAD));
+    // Reviewed sung intervals already use the exact audio clock. Legacy timing keeps its reading lead.
+    tm.starts = tm.starts.map((t, i) => tm.explicitEnds[i] != null ? t : Math.max(0, t - LEAD));
+    tm.ends = tm.ends.map((t, i) => tm.explicitEnds[i] != null ? Math.min(t, tm.starts[i + 1] ?? Infinity) : Math.max(tm.starts[i] + 0.3, t - LEAD));
   }
   const [W, H] = J.designSize(project.aspect);
   // enabled map: anything not explicitly switched off is on (new pack entries appear enabled in old projects);
@@ -345,7 +357,7 @@ J.plan = (project, audio) => {
       return;
     }
     const n = [...ln.text.replace(/\s+/g, '')].length;
-    const visEnd = Math.min(e, s + Math.max(3.6, n * 0.5 + 1.2));
+    const visEnd = tm.explicitEnds[li] != null ? e : Math.min(e, s + Math.max(3.6, n * 0.5 + 1.2));
     const D = visEnd - s;
     plan.lines.push({ index: li, src: ln.src, lrc: ln.lrc, text: ln.text, start: s, end: e, visEnd, note: ln.note, impact: ln.impact, emph: ln.emph, chunks: null, seed: lineSeed });
     const chunks = ln.manual || (plan.lang === 'en' ? J.phraseChunks(J.chunkText(ln.text)) : J.chunkText(ln.text));
@@ -588,8 +600,8 @@ J.plan = (project, audio) => {
       for (let q = evMark; q < plan.events.length; q++) evOwner.set(plan.events[q], cut);   // which cut each accent came from (for ロック)
     });
     // interlude in long gaps
-    const nextStart = li < parsed.lines.length - 1 ? tm.starts[li + 1] : null;
-    if (nextStart != null && nextStart - visEnd > 1.3 && !parsed.lines[li + 1].interlude) {
+    const nextStart = li < parsed.lines.length - 1 ? tm.starts[li + 1] : (tm.explicitEnds[li] != null ? tm.duration : null);
+    if (nextStart != null && nextStart - visEnd > 1.3 && !parsed.lines[li + 1]?.interlude) {
       const r2 = J.rng(J.h(lineSeed, 404));
       plan.cuts.push(makeCut({ text: title || '', lineText: '', line: li, start: visEnd, end: nextStart, layout: 'interlude', enter: 'blur', exit: 'blur', hold: 'still', inDur: 0.3, outDur: 0.3, params: J.LAYOUTS.interlude.plan(r2), decor: pickDecor(r2, st, en, Object.assign({}, fx, { decor: 1 }), 'interlude'), scheme: schemeIdx, seed: J.h(lineSeed, 405) }));
     }

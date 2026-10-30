@@ -440,3 +440,76 @@ button.small.primary { padding: 4px 12px; }
 /* layout menus are filled on first use: keep their width fixed so nothing jumps */
 .ln .cuts select.cut-lay { width: 112px; }
 .ln .tools select.lay { width: 112px; }
+
+/* AI review stays inline with the lyrics in every editor mode. */
+.ai-panel { min-width: 0; }
+.ai-panel p { margin: 0; overflow-wrap: anywhere; }
+.ai-panel .ai-intro { margin-bottom: 14px; font-size: 12px; line-height: 1.6; }
+.ai-model-row { display: flex; align-items: end; gap: 8px; margin-bottom: 12px; }
+.ai-field { display: flex; flex: 1; flex-direction: column; min-width: 0; gap: 6px; font-size: 12px; }
+.ai-provider { margin-bottom: 12px; }
+.ai-field select, .ai-field textarea { width: 100%; min-width: 0; box-sizing: border-box; }
+.ai-field textarea { resize: vertical; min-height: 72px; font: inherit; line-height: 1.6; }
+.ai-panel .ai-help { color: var(--muted); font-size: 11px; line-height: 1.6; margin-top: 8px; }
+.ai-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.ai-actions:has(> [hidden]:only-child), .ai-actions:has(> [hidden] + [hidden]) { display: none; }
+.ai-panel .ai-status { margin-top: 12px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.ai-status.is-error { color: var(--amber); }
+.ai-preview { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+.ai-preview h3 { margin: 0 0 8px; font-size: 13px; }
+.ai-panel .ai-summary { font-size: 12px; line-height: 1.6; white-space: pre-wrap; }
+.ai-lines { list-style: none; padding: 0; margin: 14px 0 0; max-height: 420px; overflow-y: auto; overscroll-behavior: contain; }
+.ai-lines li { padding: 12px 0; border-top: 1px solid var(--line); font-size: 12px; line-height: 1.6; }
+.ai-lines strong { font-size: 11px; color: var(--amber); }
+.ai-panel .ai-lyric { margin: 3px 0 6px; white-space: pre-wrap; }
+.ai-panel .ai-reason { color: var(--text); white-space: pre-wrap; }
+.ai-panel .ai-techniques { margin-top: 6px; color: var(--muted); font-size: 11px; }
+.ai-panel :focus-visible { outline: 2px solid var(--amber); outline-offset: 3px; }
+.ai-panel [hidden] { display: none !important; }
+.ai-current-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 14px; }
+.ai-current-model { min-width: 0; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+.ai-current-row > button { flex-shrink: 0; }
+.ai-settings { width: min(620px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); box-sizing: border-box; padding: 22px; color: var(--text); background: var(--panel); border: 1px solid var(--line2); border-radius: 10px; box-shadow: 0 18px 60px #0008; overflow: auto; }
+.ai-settings::backdrop { background: #08080abf; }
+.ai-settings-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.ai-settings h2 { margin: 0; font-size: 19px; }
+.ai-settings h3 { margin: 24px 0 12px; font-size: 14px; }
+.ai-settings .ai-help, .ai-settings .ai-status { font-size: 12px; line-height: 1.6; color: var(--muted); overflow-wrap: anywhere; }
+.ai-settings .ai-status { min-height: 1.6em; }
+.ai-settings :focus-visible { outline: 2px solid var(--amber); outline-offset: 3px; }
+.ai-settings [hidden] { display: none !important; }
+.ai-account { padding: 12px 0; border-top: 1px solid var(--line); font-size: 12px; }
+.ai-account p { margin: 5px 0; }
+.ai-account-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; }
+.ai-account-row > span { overflow-wrap: anywhere; min-width: 0; }
+.ai-logout-confirm { padding: 10px; margin-top: 8px; border: 1px solid var(--amber); border-radius: 5px; }
+.ai-logout-confirm button { margin: 6px 6px 0 0; }
+.ai-auth { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 6px; }
+.ai-auth-link { display: inline-block; color: var(--amber); margin-bottom: 6px; overflow-wrap: anywhere; }
+.ai-auth input { width: 100%; min-height: 40px; padding: 8px; box-sizing: border-box; color: var(--text); background: var(--ink); border: 1px solid var(--line2); border-radius: 5px; font: inherit; }
+/* Reviewed audio alignment follows the editor's compact timing controls. */
+.sync-panel { min-width: 0; }
+.sync-panel .sync-help, .sync-panel .sync-status { margin: 8px 0; font-size: 11px; line-height: 1.6; color: var(--muted); overflow-wrap: anywhere; }
+.sync-panel .sync-status.is-error { color: var(--amber); }
+.sync-panel .sync-actions { flex-wrap: wrap; }
+.sync-panel .sync-progress { width: 100%; height: 5px; margin: 6px 0; accent-color: var(--amber); }
+.sync-panel .sync-review { margin-top: 14px; border-top: 1px solid var(--line); }
+.sync-panel .sync-rows { max-height: 420px; overflow-y: auto; overscroll-behavior: contain; }
+.sync-panel .sync-row { padding: 12px 0; border-top: 1px solid var(--line); }
+.sync-panel .sync-select { display: flex; gap: 8px; align-items: start; min-height: 24px; font-size: 12px; line-height: 1.6; }
+.sync-panel input[type=checkbox] { flex: none; margin-top: 3px; accent-color: var(--amber); }
+.sync-panel .sync-lyric { min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.sync-panel .sync-row-info { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 5px; font-size: 11px; color: var(--muted); }
+.sync-panel .sync-time { font-variant-numeric: tabular-nums; color: var(--text); }
+.sync-panel #syncApply, .sync-panel #syncUndo { margin-top: 12px; max-width: 100%; white-space: normal; }
+.sync-panel :focus-visible { outline: 2px solid var(--amber); outline-offset: 3px; }
+.sync-panel [hidden] { display: none !important; }
+@media (max-width: 420px) {
+  .ai-settings { padding: 16px; }
+  .ai-settings button { min-height: 40px; }
+}
+@media (max-width: 420px) {
+  .ai-model-row { align-items: stretch; flex-direction: column; }
+  .ai-model-row > button { align-self: flex-start; }
+  .ai-actions > button { flex: 1 1 auto; }
+}
